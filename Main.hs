@@ -16,14 +16,14 @@ data RGB = RGB {
    rgb_r :: Word8
  , rgb_g :: Word8 
  , rgb_b :: Word8
-} deriving (Show)
+} deriving (Show,Eq)
 
 data Image = 
   Image {
     width :: Int
   , height :: Int
   , dat :: Vector RGB
-  }
+  } deriving (Show,Eq)
 
 instance Storable RGB where
   sizeOf    _ = 3
@@ -38,38 +38,34 @@ instance Storable RGB where
     pokeByteOff ptr 1 g
     pokeByteOff ptr 2 b
 
-readBmp :: String -> IO Image
-readBmp file = do
+readImg :: String -> IO Image
+readImg file = do
   withCString file $ \ cfile -> do
-    alloca $ \cw -> do
-      alloca $ \ch -> do
-        c_tryReadBmp cfile cw ch
-        w <- peekIntConv cw
-        h <- peekIntConv ch
-        let n = w*h*3
-        fp <- mallocPlainForeignPtrBytes n :: IO (ForeignPtr RGB)
-        withForeignPtr fp $ \p -> do
-          c_readBmp cfile p
-        return $ Image w h (unsafeFromForeignPtr fp 0 n)
+    alloca $ \cp -> do
+      alloca $ \cw -> do
+        alloca $ \ch -> do
+          c_readImg cfile cp cw ch
+          w <- fmap fromIntegral $ peek cw
+          h <- fmap fromIntegral $ peek ch
+          p <- peek cp
+          let n = w*h
+          fp <- newForeignPtr c_p_freeImg p
+          return $ Image w h (unsafeFromForeignPtr fp 0 n)
   where
     doMalloc n dummy = do
         mallocPlainForeignPtrBytes (n * sizeOf dummy)
   
-writeBmp :: String -> Image -> IO ()
+writeBmp :: String -> Image -> IO Int
 writeBmp file (Image w h dat) = do
   withCString file $ \ cfile -> do
     unsafeWith dat $ \p -> do
-      c_writeBmp cfile p (fromIntegral w) (fromIntegral h)
+      fmap fromIntegral $ c_writeBmp cfile p (fromIntegral w) (fromIntegral h)
 
-foreign import ccall unsafe "tryReadBmp" c_tryReadBmp :: Ptr CChar -> Ptr CInt ->  Ptr CInt -> IO ()
-foreign import ccall unsafe "tryReadPng" c_tryReadPng :: Ptr CChar -> Ptr CInt ->  Ptr CInt -> IO ()
-foreign import ccall unsafe "tryReadJpeg" c_tryReadJpeg :: Ptr CChar -> Ptr CInt ->  Ptr CInt -> IO ()
-foreign import ccall unsafe "readBmp" c_readBmp :: Ptr CChar -> Ptr RGB -> IO ()
-foreign import ccall unsafe "readPng" c_readPng :: Ptr CChar -> Ptr RGB -> IO ()
-foreign import ccall unsafe "readJpeg" c_readJpeg :: Ptr CChar -> Ptr RGB  -> IO ()
-foreign import ccall unsafe "writeBmp" c_writeBmp :: Ptr CChar -> Ptr RGB -> CInt -> CInt -> IO ()
-foreign import ccall unsafe "writePng" c_writePng :: Ptr CChar -> Ptr RGB -> CInt -> CInt -> IO ()
-foreign import ccall unsafe "writeJpeg" c_writeJpeg :: Ptr CChar -> Ptr RGB -> CInt -> CInt -> IO ()
+foreign import ccall unsafe "readImg" c_readImg :: Ptr CChar -> Ptr (Ptr RGB) -> Ptr CInt -> Ptr CInt -> IO CInt
+foreign import ccall unsafe "&freeImg" c_p_freeImg :: FunPtr(Ptr RGB -> IO ())
+foreign import ccall unsafe "writeBmp" c_writeBmp :: Ptr CChar -> Ptr RGB -> CInt -> CInt -> IO CInt
+foreign import ccall unsafe "writePng" c_writePng :: Ptr CChar -> Ptr RGB -> CInt -> CInt -> IO CInt
+foreign import ccall unsafe "writeJpeg" c_writeJpeg :: Ptr CChar -> Ptr RGB -> CInt -> CInt -> IO CInt
 
 vec w h = Image w h $ fromList $ do
   y <- [0..(h-1)]
@@ -77,7 +73,14 @@ vec w h = Image w h $ fromList $ do
   let v = fromIntegral $ y * 256 `div` h
   return $ RGB v 0 0
 
-
 main = do
   writeBmp "hoge.bmp" $ vec 1920 1080
+  writeBmp "hoge.jpg" $ vec 1920 1080
+  writeBmp "hoge.png" $ vec 1920 1080
+  img0 <- readImg "hoge.bmp"
+  img1 <- readImg "hoge.jpg"
+  img2 <- readImg "hoge.png"
+  writeBmp "hoge2.bmp" $ img0
+  writeBmp "hoge2.jpg" $ img1
+  writeBmp "hoge2.png" $ img2
   return ()

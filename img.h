@@ -1,9 +1,8 @@
-extern void tryReadBmp(const char* filename,int* pw,int* ph);
-extern void tryReadPng(const char* filename,int* pw,int* ph);
-extern void tryReadJpeg(const char* filename,int* pw,int* ph);
-extern void readBmp(const char* filename,unsigned char* img);
-extern void readPng(const char* filename,unsigned char* img);
-extern void readJpeg(const char* filename,unsigned char* img);
-extern void writeBmp(const char* file,unsigned char* img,int w,int h);
-extern void writePng(const char* file,unsigned char* img,int w,int h);
-extern void writeJpeg(const char* file,unsigned char* img,int w,int h);
+extern int readImg(const char* filename,unsigned char** img,int *wp,int *hp);
+extern int readBmp(const char* filename,unsigned char** img,int *wp,int *hp);
+extern int readPng(const char* filename,unsigned char** img,int *wp,int *hp);
+extern int readJpeg(const char* filename,unsigned char** img,int *wp,int *hp);
+extern void freeImg(unsigned char* img);
+extern int writeBmp(const char* file,unsigned char* img,int w,int h);
+extern int writePng(const char* file,unsigned char* img,int w,int h);
+extern int writeJpeg(const char* file,unsigned char* img,int w,int h);

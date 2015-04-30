@@ -24,108 +24,44 @@
 #define SET2(dat) {int16_t si=(int16_t)(dat);memcpy(data+pos,&si ,2);pos+=2;}
 #define SET1(dat) {unsigned char ci=(unsigned char)(dat);data[pos++]=ci;}
 
-void
-tryReadBmp(const char* filename,int* pw,int* ph){
-  int16_t bpp;
-  unsigned char *begin,*pos;
-  unsigned char *parret;
-  int offset;
-  unsigned char *data=NULL;
-  long size=0;
-  FILE* file=fopen(filename,"rb");
-  unsigned char ppos;
-  unsigned short int p;
-  unsigned int** img;
-  int w,h;
-  int x,y;
-  if(file==NULL)
-    return;
-  
-  fseek(file,0,SEEK_END);
-  size=ftell(file);
-  data=(unsigned char*)malloc(size);
-  
-  fseek(file,0,SEEK_SET);
-  fread(data,size,1,file);
-
-  w=*(int32_t*)(data+18);
-  h=*(int32_t*)(data+22);
-  fclose(file);
-}
-
-void
-tryReadPng(const char* file,int* pw,int* ph){
-  char header[8];// 8 is the maximum size that can be checked
-  png_structp  png_ptr;
-  png_infop    info_ptr;
-  int w,h;
-  FILE *fp = fopen(file, "rb");
-  int color_type;
-  int bit_depth;
-  int    r;
-  int    hs;
-  int    ts;
-  unsigned char*  t;
-  unsigned char* p;
-  unsigned char** hp;
-  int i;
-
-  fread(header, 1, 8, fp);
-  assert(png_sig_cmp((png_byte*)header, 0, 8)==0);
-
-  png_ptr = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
-  assert(png_ptr!=NULL);
-
-  info_ptr = png_create_info_struct(png_ptr);
-  assert(info_ptr!=NULL);
-
-  if (setjmp(png_jmpbuf(png_ptr))){
-    fprintf(stderr,"[read_png_file] Error during init_io");
-    abort();
+int
+readImg(const char* file,unsigned char** imgp, int* wp, int* hp){
+  FILE *fp;
+  char buf[4];
+  int r;
+  fp=fopen(file,"rb");
+  memset(buf,0,sizeof(buf));
+  r=fread(buf,1,4,fp);
+  if(r!=4){
+    fclose(fp);
+    return -1;
   }
-
-  png_init_io(png_ptr, fp);
-  png_set_sig_bytes(png_ptr, 8);
-
-  png_read_info(png_ptr, info_ptr);
-
-  w=(int)info_ptr->width;
-  h=(int)info_ptr->height;
-  png_destroy_read_struct(&png_ptr, &info_ptr,(png_infopp)NULL);
-
   fclose(fp);
+
+  if(buf[0]=='B' &&
+     buf[1]=='M')
+    return readBmp(file,imgp,wp,hp);
+  else if(buf[1]=='P' &&
+	  buf[2]=='N' &&
+	  buf[3]=='G')
+    return readPng(file,imgp,wp,hp);
+  else if(buf[0]==(char)0xff &&
+	  buf[1]==(char)0xd8 &&
+	  buf[2]==(char)0xff &&
+	  buf[3]==(char)0xe0 )
+    return readJpeg(file,imgp,wp,hp);
+  else
+    return -1;
 }
 
 void
-tryReadJpeg(const char* file,int* pw,int* ph){
-  struct jpeg_decompress_struct cinfo;
-  struct jpeg_error_mgr jerr;
-  JSAMPARRAY img;
-  int width;
-  int height;
-  FILE* infile;
-  int w,h;
-  int i,j,c;
-
-  cinfo.err = jpeg_std_error( &jerr );
-  jpeg_create_decompress( &cinfo );
-
-  infile = fopen(file, "rb" );
-  jpeg_stdio_src( &cinfo, infile );
-  jpeg_read_header( &cinfo, TRUE );
-  width = cinfo.output_width;
-  height = cinfo.output_height;
-  jpeg_destroy_decompress( &cinfo );
-  fclose( infile );
-
-
-  w=(int)width;
-  h=(int)height;
+freeImg(unsigned char* imgp){
+  if(imgp!=NULL)
+    free(imgp);
 }
 
-
-void
-readBmp(const char* filename,unsigned char* img){
+int
+readBmp(const char* filename,unsigned char** imgp,int* wp,int* hp){
   int16_t bpp;
   unsigned char *begin,*pos;
   unsigned char *parret;
@@ -137,20 +73,28 @@ readBmp(const char* filename,unsigned char* img){
   unsigned short int p;
   int w,h;
   int x,y;
+  unsigned char* img;
+  int r;
   //  int32_t headersize=0;
   if(file==NULL)
-    return;
+    return -1;
   
   fseek(file,0,SEEK_END);
   size=ftell(file);
   data=(unsigned char*)malloc(size);
   
   fseek(file,0,SEEK_SET);
-  fread(data,size,1,file);
+  r=fread(data,size,1,file);
+  if(r!=1){
+    fclose(file);
+    free(data);
+    return -1;
+  }
 
   offset=*(int32_t*)(data+10);
-  w=*(int32_t*)(data+18);
-  h=*(int32_t*)(data+22);
+  *wp=w=*(int32_t*)(data+18);
+  *hp=h=*(int32_t*)(data+22);
+  *imgp=img=(unsigned char*)malloc(sizeof(unsigned char)*3*w*h);
   bpp=*(int16_t*)(data+28);
   begin=(unsigned char*)data+offset;
   parret=(unsigned char*)data+54;
@@ -205,17 +149,22 @@ readBmp(const char* filename,unsigned char* img){
 	pos++;
 	break;
       default:
-	printf("Does not support bpp:%d\n",bpp);
-	exit(1);
+	if (data!=NULL)
+	  free(data);
+	if (img!=NULL)
+	  free(img);
+	fclose(file);
+	return -2;
       }
     }
   }
   free(data);
   fclose(file);
+  return 0;
 }
 
-void
-readPng(const char* file,unsigned char* img){
+int
+readPng(const char* file,unsigned char** imgp,int* wp,int* hp){
   char header[8];// 8 is the maximum size that can be checked
   png_structp  png_ptr;
   png_infop    info_ptr;
@@ -227,11 +176,16 @@ readPng(const char* file,unsigned char* img){
   int    hs;
   int    ts;
   unsigned char*  t;
-  unsigned char* p;
-  unsigned char** hp;
+  unsigned char*  p;
+  unsigned char** hpp;
   int i;
+  unsigned char* img;
 
-  fread(header, 1, 8, fp);
+  r=fread(header, 1, 8, fp);
+  if(r!=8){
+    fclose(fp);
+    return -1;
+  }
   assert(png_sig_cmp((png_byte*)header, 0, 8)==0);
 
   png_ptr = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
@@ -250,8 +204,9 @@ readPng(const char* file,unsigned char* img){
 
   png_read_info(png_ptr, info_ptr);
 
-  w=(int)info_ptr->width;
-  h=(int)info_ptr->height;
+  *wp=w=(int)info_ptr->width;
+  *hp=h=(int)info_ptr->height;
+  *imgp=img=(unsigned char*)malloc(sizeof(unsigned char)*3*w*h);
 
   color_type = info_ptr->color_type;
   bit_depth  = info_ptr->bit_depth;
@@ -269,8 +224,8 @@ readPng(const char* file,unsigned char* img){
   png_read_update_info(png_ptr, info_ptr);
 
   if (setjmp(png_jmpbuf(png_ptr))){
-    fprintf(stderr,"[read_png_file] Error during read_image");
-    abort();
+    free(img);
+    return -1;
   }
 
   r  = (int)info_ptr->rowbytes;
@@ -278,11 +233,10 @@ readPng(const char* file,unsigned char* img){
   ts = r * h;
   t  = (unsigned char*) malloc(hs+ts);
   p   = t+hs;
-  hp = (unsigned char**)t;
-  assert(t!=NULL);
+  hpp = (unsigned char**)t;
 
   for(i=0;i<h;i++)
-    hp[i]=p+r*i;
+    hpp[i]=p+r*i;
   
   png_read_image(png_ptr, (png_byte**)t);
 
@@ -293,22 +247,22 @@ readPng(const char* file,unsigned char* img){
   }
 
   free(t);
-  
   png_destroy_read_struct(&png_ptr, &info_ptr,(png_infopp)NULL);
-
   fclose(fp);
+  return 0;
 }
 
-void
-readJpeg(const char* file,unsigned char* rimg){
+int
+readJpeg(const char* file,unsigned char** imgp,int* wp,int* hp){
   struct jpeg_decompress_struct cinfo;
   struct jpeg_error_mgr jerr;
-  JSAMPARRAY img;
+  JSAMPARRAY jimg;
   int width;
   int height;
   FILE* infile;
   int w,h;
   int i,j,c;
+  unsigned char* img;
 
   cinfo.err = jpeg_std_error( &jerr );
   jpeg_create_decompress( &cinfo );
@@ -320,17 +274,18 @@ readJpeg(const char* file,unsigned char* rimg){
   jpeg_read_header( &cinfo, TRUE );
   jpeg_start_decompress( &cinfo );
 
-  width = cinfo.output_width;
-  height = cinfo.output_height;
+  *wp = w = cinfo.output_width;
+  *hp = h = cinfo.output_height;
+  *imgp=img=(unsigned char*)malloc(sizeof(unsigned char)*3*w*h);
 
-  img = (JSAMPARRAY)malloc( sizeof( JSAMPROW ) * height );
-  for (i = 0; i < height; i++ ) 
-    img[i] = (JSAMPROW)malloc( sizeof( JSAMPLE )* 3 * width );
+  jimg = (JSAMPARRAY)malloc( sizeof( JSAMPROW ) * h );
+  for (i = 0; i < h; i++ ) 
+    jimg[i] = (JSAMPROW)malloc( sizeof( JSAMPLE )* 3 * w );
 
 
   while( cinfo.output_scanline < cinfo.output_height ) {
     jpeg_read_scanlines( &cinfo,
-			 img + cinfo.output_scanline,
+			 jimg + cinfo.output_scanline,
 			 cinfo.output_height - cinfo.output_scanline
 			 );
   }
@@ -340,20 +295,18 @@ readJpeg(const char* file,unsigned char* rimg){
   fclose( infile );
 
 
-  w=(int)width;
-  h=(int)height;
-
-  for (i = 0; i < height; i++ )
-    for (j = 0; j < width; j++ ) 
+  for (i = 0; i < h; i++ )
+    for (j = 0; j < w; j++ ) 
       for(c=0;c<3;c++)
-	C(rimg,j,i,c)=img[i][j * 3 + c];
+	C(img,j,i,c)=jimg[i][j * 3 + c];
 
-  for (i = 0; i < height; i++ )
-    free( img[i] );
-  free( img );
+  for (i = 0; i < h; i++ )
+    free( jimg[i] );
+  free( jimg );
+  return 0;
 }
 
-void
+int
 writeBmp(const char* file,unsigned char* img,int w,int h){
   unsigned char* data=NULL;
   int16_t bpp=24;
@@ -395,18 +348,18 @@ writeBmp(const char* file,unsigned char* img,int w,int h){
     }
   }
   if(fsize!=pos){
-    printf("fsize:%d != pos:%d\n",(int)fsize,(int)pos);
-    exit(1);
+    return -1;
   }
 
   FILE* f=fopen(file,"wb");
   fwrite(data,fsize,1,f);
   fclose(f);
   free(data);
+  return 0;
 }
 
 
-void
+int
 writePng(const char* file,unsigned char* vimg,int w,int h){
   png_structp  png_ptr;
   png_infop    info_ptr;
@@ -420,24 +373,25 @@ writePng(const char* file,unsigned char* vimg,int w,int h){
   unsigned char* p;
   unsigned char** hp;
   int i;
-  assert(fp!=NULL);
+  if(fp!=NULL)
+    return -1;
 
   png_ptr = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
-  assert(png_ptr!=NULL);
+  if(png_ptr!=NULL)
+    return -1;
 
   info_ptr = png_create_info_struct(png_ptr);
-  assert(info_ptr!=NULL);
+  if(info_ptr!=NULL)
+    return -1;
 
   if (setjmp(png_jmpbuf(png_ptr))){
-    fprintf(stderr,"[write_png_file] Error during init_io");
-    abort();
+    return -2;
   }
 
   png_init_io(png_ptr, fp);
 
   if (setjmp(png_jmpbuf(png_ptr))){
-    fprintf(stderr,"[write_png_file] Error during writing header");
-    abort();
+    return -2;
   }
 
   bit_depth=8;
@@ -451,8 +405,7 @@ writePng(const char* file,unsigned char* vimg,int w,int h){
 
 
   if (setjmp(png_jmpbuf(png_ptr))){
-    fprintf(stderr,"[write_png_file] Error during writing bytes");
-    abort();
+    return -2;
   }
 
   r  = (int)info_ptr->rowbytes;
@@ -488,9 +441,10 @@ writePng(const char* file,unsigned char* vimg,int w,int h){
   png_destroy_write_struct(&png_ptr, &info_ptr);
 
   fclose(fp);
+  return 0;
 }
 
-void
+int
 writeJpeg(const char* file,unsigned char* vimg,int w,int h){
   struct jpeg_compress_struct cinfo;
   struct jpeg_error_mgr jerr;
@@ -531,6 +485,7 @@ writeJpeg(const char* file,unsigned char* vimg,int w,int h){
   for ( i = 0; i < h; i++ )
     free( img[i] );
   free( img );
+  return 0;
 }
 
 
