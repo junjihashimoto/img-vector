@@ -20,7 +20,6 @@ executable image
   -- other-modules:       
   -- other-extensions:    
   build-depends:       base ==4.*
-                      ,language-c-inline
                       ,vector
   -- hs-source-dirs:      
   default-language:    Haskell2010
@@ -28,4 +27,4 @@ executable image
                      , jpeg
   c-sources:           img.c
   include-dirs:        .
-  -- cc-options:  -fPIC
+  cc-options:  -fPIC
