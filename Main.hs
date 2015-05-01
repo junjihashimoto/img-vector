@@ -61,6 +61,18 @@ writeBmp file (Image w h dat) = do
     unsafeWith dat $ \p -> do
       fmap fromIntegral $ c_writeBmp cfile p (fromIntegral w) (fromIntegral h)
 
+writeJpeg :: String -> Image -> IO Int
+writeJpeg file (Image w h dat) = do
+  withCString file $ \ cfile -> do
+    unsafeWith dat $ \p -> do
+      fmap fromIntegral $ c_writeJpeg cfile p (fromIntegral w) (fromIntegral h)
+
+writePng :: String -> Image -> IO Int
+writePng file (Image w h dat) = do
+  withCString file $ \ cfile -> do
+    unsafeWith dat $ \p -> do
+      fmap fromIntegral $ c_writePng cfile p (fromIntegral w) (fromIntegral h)
+
 foreign import ccall unsafe "readImg" c_readImg :: Ptr CChar -> Ptr (Ptr RGB) -> Ptr CInt -> Ptr CInt -> IO CInt
 foreign import ccall unsafe "&freeImg" c_p_freeImg :: FunPtr(Ptr RGB -> IO ())
 foreign import ccall unsafe "writeBmp" c_writeBmp :: Ptr CChar -> Ptr RGB -> CInt -> CInt -> IO CInt
@@ -75,12 +87,12 @@ vec w h = Image w h $ fromList $ do
 
 main = do
   writeBmp "hoge.bmp" $ vec 1920 1080
-  writeBmp "hoge.jpg" $ vec 1920 1080
-  writeBmp "hoge.png" $ vec 1920 1080
+  writeJpeg "hoge.jpg" $ vec 1920 1080
+  writePng "hoge.png" $ vec 1920 1080
   img0 <- readImg "hoge.bmp"
   img1 <- readImg "hoge.jpg"
   img2 <- readImg "hoge.png"
   writeBmp "hoge2.bmp" $ img0
-  writeBmp "hoge2.jpg" $ img1
-  writeBmp "hoge2.png" $ img2
+  writeJpeg "hoge2.jpg" $ img1
+  writePng "hoge2.png" $ img2
   return ()

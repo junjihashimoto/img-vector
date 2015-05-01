@@ -189,14 +189,15 @@ readPng(const char* file,unsigned char** imgp,int* wp,int* hp){
   assert(png_sig_cmp((png_byte*)header, 0, 8)==0);
 
   png_ptr = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
-  assert(png_ptr!=NULL);
+  if(png_ptr==NULL)
+    return -1;
 
   info_ptr = png_create_info_struct(png_ptr);
-  assert(info_ptr!=NULL);
+  if(info_ptr==NULL)
+    return -1;
 
   if (setjmp(png_jmpbuf(png_ptr))){
-    fprintf(stderr,"[read_png_file] Error during init_io");
-    abort();
+    return -1;
   }
 
   png_init_io(png_ptr, fp);
@@ -373,15 +374,15 @@ writePng(const char* file,unsigned char* vimg,int w,int h){
   unsigned char* p;
   unsigned char** hp;
   int i;
-  if(fp!=NULL)
+  if(fp==NULL)
     return -1;
 
   png_ptr = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
-  if(png_ptr!=NULL)
+  if(png_ptr==NULL)
     return -1;
 
   info_ptr = png_create_info_struct(png_ptr);
-  if(info_ptr!=NULL)
+  if(info_ptr==NULL)
     return -1;
 
   if (setjmp(png_jmpbuf(png_ptr))){
@@ -414,7 +415,8 @@ writePng(const char* file,unsigned char* vimg,int w,int h){
   t  = (unsigned char*) malloc(hs+ts);
   p  = t+hs;
   hp = (unsigned char**)t;
-  assert(t!=NULL);
+  if(t==NULL)
+    return -1;
 
   for(i=0;i<h;i++)
     hp[i]=p+r*i;
@@ -429,13 +431,10 @@ writePng(const char* file,unsigned char* vimg,int w,int h){
 
 
   if (setjmp(png_jmpbuf(png_ptr))){
-    fprintf(stderr,"[write_png_file] Error during end of write");
-    abort();
+    return -1;
   }
 
   png_write_end(png_ptr, NULL);
-
-  
   free(t);
 
   png_destroy_write_struct(&png_ptr, &info_ptr);
