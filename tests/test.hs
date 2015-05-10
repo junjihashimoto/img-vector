@@ -29,7 +29,7 @@ vec w h = createImg w h $ \_ y ->
   in RGB v 0 0
 
 chrome :: RGB Word8 -> RGB Word8
-chrome rgb = fmap fromIntegral $ (\(YUV y _ _) -> RGB y y y) $ rgb2yuv $ (fmap fromIntegral rgb :: RGB Int)
+chrome rgb = fmap fromIntegral $ (\(YUV y _ _) -> RGB y y y) $ fromRGB $ (fmap fromIntegral rgb :: RGB Int)
 
 
 
@@ -48,4 +48,4 @@ main = hspec $ do
       let org = I.map chrome (vec 100 64)
       writePng "hoge2.png" org `shouldReturn` Right ()
     prop "rgb2yuv yuv2rgb" $ \(v :: RGB Int) -> 
-      yuv2rgb (rgb2yuv v) == v
+      toRGB (fromRGB v :: YUV Int) == v
