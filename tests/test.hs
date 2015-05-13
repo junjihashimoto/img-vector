@@ -46,6 +46,15 @@ main = hspec $ do
     it "map" $ do
       let org = I.map chrome (vec 100 64)
       writePng "hoge2.png" org `shouldReturn` Right ()
+    it "toMatrix fromMatrix" $ do
+      let org = I.map chrome (vec 100 64)
+      fromMatrix (toMatrix org) `shouldBe`  org
+    it "toMatrixList fromMatrixList" $ do
+      let org = I.map chrome (vec 100 64)
+      fromMatrixList (toMatrixList org) `shouldBe`  org
+    -- it "toMatrixD fromMatrixD" $ do
+    --   let org = I.map chrome (vec 100 64)
+    --   fromMatrixD (toMatrixD org) `shouldBe`  org
   describe "ColorSpace test" $ do
     it "rgb+rgb" $ do
       RGB 1 2 3 + RGB 1 2 3 `shouldBe` (RGB 2 4 6  :: RGB Int)

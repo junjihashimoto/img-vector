@@ -19,8 +19,12 @@ module Data.Vector.Image (
 , RGB8
 , Image8
 , map
+, (!)
+, (!?)
 , createImg
+, createImgI
 , readImg
+, writeImg
 , writeBmp
 , writePng
 , writeJpeg
@@ -33,11 +37,13 @@ module Data.Vector.Image (
 import Prelude hiding(map)
 import qualified Prelude as P
 import qualified Data.List as L
-import Data.Vector.Storable hiding(forM_,map,replicate,fromList,toList)
-import Numeric.LinearAlgebra.Data hiding (fromList,toList)
-import Numeric.LinearAlgebra.HMatrix hiding (fromList,toList)
+import Data.Vector.Storable hiding(forM_,map,replicate,fromList,toList,(!?),(!))
+import Data.Maybe
+import Numeric.LinearAlgebra.Data hiding (fromList,toList,(!))
+import Numeric.LinearAlgebra.HMatrix hiding (fromList,toList,(!))
 import qualified Data.Vector.Storable as V
 import Foreign
+import GHC.Real
 import Foreign.C.String
 import Foreign.C.Types
 import qualified Control.Monad as C
@@ -87,6 +93,27 @@ instance (ColorSpace c a,Num a) => Num (c a) where
       v' = fromIntegral v
       dummyColor = error "do not eval this" :: (c a)
 
+instance Enum (RGB Int) where
+  succ rgb =  rgb + RGB 1 1 1
+  pred rgb =  rgb - RGB 1 1 1
+  toEnum i = fromIntegral i
+  fromEnum (RGB r g b) = r
+  enumFrom rgb = rgb : (enumFrom $ succ rgb)
+  enumFromThen rgb rgb1 = rgb : (enumFromThen rgb1 (2 * rgb1 - rgb))
+
+instance Real (RGB Int) where
+  toRational (RGB r g b) = (fromIntegral $ (r + 2*g + b) `div` 4) % 1
+  
+instance Integral (RGB Int) where
+  quot = op quot
+  rem = op rem
+  div = op div
+  mod = op mod
+  quotRem a b = (quot a b,rem a b)
+  divMod a b = (div a b,mod a b)
+  toInteger (RGB r g b) = fromIntegral $ (r + 2*g + b) `div` 4
+  
+
 data YUV a = YUV {
    yuv_y :: a
  , yuv_u :: a 
@@ -101,9 +128,9 @@ type RGB8 = RGB Word8
 
 data Image a = 
   Image {
-    width :: Int
-  , height :: Int
-  , dat :: Vector a
+    img_width :: Int
+  , img_height :: Int
+  , img_dat :: Vector a
   } deriving (Show,Eq)
 
 type Image8 = Image (RGB Word8)
@@ -111,6 +138,17 @@ type Image8 = Image (RGB Word8)
 map :: (Storable a, Storable b) => (a->b) -> Image a -> Image b
 map func (Image w h d) = (Image w h (V.map func d))
 
+index :: Storable a => Image a -> (Int,Int) -> a
+index (Image w h d) (x,y) = d V.! (w*y+x)
+
+(!?) :: Storable a => Image a -> (Int,Int) -> Maybe a
+(!?) img@(Image w h d) (x,y) | x < 0 || x >= w || y <0 || y>= h = Nothing
+                             | otherwise = Just (index img (x,y))
+
+(!) :: (Storable a,Integral a) => Image a -> (Int,Int) -> a
+(!) img idx = fromMaybe 0 (img !? idx)
+
+instance (Storable a) => Element a
 instance (ColorSpace c a,Storable a) => Element (c a)
 
 instance (ColorSpace c a,Storable a) => Storable (c a) where
@@ -137,12 +175,12 @@ yuv2rgb (YUV y u v) = RGB (v+g) g (u+g)
   where
     g = y - ((u + v)`div`4)
 
-instance (Num a,Integral a) => ColorSpace RGB a where
+instance ColorSpace RGB a where
   toRGB = id
   fromRGB = id
   toList (RGB r g b) = [r,g,b]
   fromList [r,g,b] = (RGB r g b)
-  fromList _ = error "List must be 3 values."
+  fromList val = error $ "List length must be 3 but " L.++  show (L.length val)
   dim _ = 3
 
 instance (Num a,Integral a) => ColorSpace YUV a where
@@ -150,8 +188,9 @@ instance (Num a,Integral a) => ColorSpace YUV a where
   fromRGB = rgb2yuv
   toList (YUV r g b) = [r,g,b]
   fromList [r,g,b] = (YUV r g b)
-  fromList _ = error "List must be 3 values."
+  fromList val = error $ "List length must be 3 but " L.++  show (L.length val)
   dim _ = 3
+
 
 -- | Generate Image
 createImg :: Int -- ^ Width of image
@@ -162,6 +201,16 @@ createImg w h func = Image w h $ V.fromList $ do
   y <- [0..(h-1)]
   x <- [0..(w-1)]
   return $ func x y
+
+-- | Generate Image
+createImgI :: Int -- ^ Width of image
+           -> Int -- ^ Height of image
+           -> (Int -> Int -> RGB Int) -- ^ Pixel Generator
+           -> Image8
+createImgI w h func = Image w h $ V.fromList $ do
+  y <- [0..(h-1)]
+  x <- [0..(w-1)]
+  return $ fmap fromIntegral $ fmap (\v -> if v < 0 then 0 else if v > 255 then 255 else v) $ func x y
 
 type WriteImgFunc = Ptr CChar -- ^ Filename
                  -> Ptr RGB8  -- ^ Image Vector
@@ -192,30 +241,63 @@ readImg file = do
                    then Left r
                    else Right $  Image w h (unsafeFromForeignPtr fp 0 n)
 
-writeImg :: WriteImgFunc -> String -> Image8 -> IO (Either Int ())
-writeImg func file (Image w h dat) = do
+writeImg' :: WriteImgFunc -> String -> Image8 -> IO (Either Int ())
+writeImg' func file (Image w h dat) = do
   r <- fmap fromIntegral $ withCString file $ \ cfile -> do
     unsafeWith dat $ \p -> do
       func cfile p (fromIntegral w) (fromIntegral h)
   return $ if r < 0 then Left r else Right ()
 
 
+writeImg :: String   -- ^ Filename
+         -> Image8  -- ^ Image Data
+         -> IO (Either Int ())
+writeImg file img | L.isSuffixOf ".bmp" file = writeBmp file img
+                  | L.isSuffixOf ".BMP" file = writeBmp file img
+                  | L.isSuffixOf ".png" file = writePng file img
+                  | L.isSuffixOf ".Png" file = writePng file img
+                  | L.isSuffixOf ".jpg" file = writeJpeg file img
+                  | L.isSuffixOf ".JPG" file = writeJpeg file img
+                  | otherwise = return $ Left (-1)
+
+
 writeBmp :: String   -- ^ Filename
          -> Image8  -- ^ Image Data
          -> IO (Either Int ())
-writeBmp = writeImg c_writeBmp
+writeBmp = writeImg' c_writeBmp
 
 writeJpeg :: String  -- ^ Filename
           -> Image8 -- ^ Image Data
           -> IO (Either Int ())
-writeJpeg = writeImg c_writeJpeg
+writeJpeg = writeImg' c_writeJpeg
 
 writePng :: String  -- ^ Filename
          -> Image8 -- ^ Image Data
          ->  IO (Either Int ())
-writePng = writeImg c_writePng
+writePng = writeImg' c_writePng
 
+splitColor :: (ColorSpace c a,Storable (c a),Storable a)
+           => Image (c a)
+           -> [Image a]
+splitColor img@(Image w h d) = flip P.map [0..(num-1)] $ (\idx -> Image w h $ V.map (\v -> toList v !! idx) d)
+  where
+    num :: Int
+    num = dim (dummyColor img)
+    dummyColor :: Image (c a) -> c a
+    dummyColor = error "do not eval this"
 
+mergeColor :: (ColorSpace c a,Storable (c a),Storable a,Element a)
+              => [Image a]
+              -> Image (c a)
+mergeColor img@((Image w h d):_) = Image w h $ V.fromList $ P.map fromList $ L.transpose $ P.map (V.toList.img_dat) img
+mergeColor [] = error "image-list is null."
+
+toDouble :: (Integral a,Storable a) => Image a -> Image Double
+toDouble img= map fromIntegral img
+
+fromDouble :: (Integral a,Storable a) => Image Double -> Image a
+fromDouble img = map truncate img
+                           
 toMatrix :: (Storable a)
         => Image a
         -> Matrix a
@@ -229,26 +311,20 @@ fromMatrix mat = Image (cols mat) (rows mat) (flatten mat)
 toMatrixList :: (ColorSpace c a,Storable (c a),Storable a,Element a)
               => Image (c a)
               -> [Matrix a]
-toMatrixList img = flip P.map [0..(num-1)] $ toM img
-  where
-    num :: Int
-    num = dim (dummyColor img) -1
-    dummyColor :: Image (c a) -> c a
-    dummyColor = error "do not eval this"
-    toM :: (ColorSpace c a,Storable (c a),Storable a,Element a) => Image (c a) -> Int -> Matrix a
-    toM (Image w h d) idx =  toMatrix $ Image w h $ V.map (\v -> toList v !! idx) d
+toMatrixList img = P.map toMatrix $ splitColor img
 
 fromMatrixList :: (ColorSpace c a,Storable (c a),Storable a,Element a)
               => [Matrix a]
               -> Image (c a)
-fromMatrixList mats@(mat:_) = Image c r $ V.fromList $ clist mats
-  where
-    m2c :: (ColorSpace c a,Storable a,Element a) => [a] -> c a
-    m2c = fromList
-    clist :: (ColorSpace c a,Storable a,Element a) => [Matrix a] -> [c a]
-    clist mats' = P.map m2c $ mlist mats'
-    mlist :: (Element a,Storable a) => [Matrix a] -> [[a]]
-    mlist mats' = L.transpose $ P.map (\m -> V.toList $ flatten m) mats'
-    c = cols mat
-    r = rows mat
-fromMatrixList [] = error "matrix-list is null."
+fromMatrixList mats = mergeColor $ P.map fromMatrix mats
+
+
+toMatrixD :: (ColorSpace c a,Storable (c a),Storable a,Element a,Integral a)
+         => Image (c a)
+         -> [Matrix Double]
+toMatrixD img = P.map toMatrix $ P.map toDouble $ splitColor img
+
+fromMatrixD :: (ColorSpace c a,Storable (c a),Storable a,Element a,Integral a)
+           => [Matrix Double]
+           -> Image (c a)
+fromMatrixD mats = mergeColor $ P.map fromDouble $ P.map fromMatrix mats

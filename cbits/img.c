@@ -30,6 +30,9 @@ readImg(const char* file,unsigned char** imgp, int* wp, int* hp){
   char buf[4];
   int r;
   fp=fopen(file,"rb");
+  if(fp==NULL){
+    return -1;
+  }
   memset(buf,0,sizeof(buf));
   r=fread(buf,1,4,fp);
   if(r!=4){
