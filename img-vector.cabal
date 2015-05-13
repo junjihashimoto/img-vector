@@ -18,6 +18,11 @@ flag sample
 
 library
   exposed-modules:     Data.Vector.Image
+                     , Data.Vector.Image.Color.RGB
+                     , Data.Vector.Image.Color.YUV
+                     , Data.Vector.Image.Image
+                     , Data.Vector.Image.Matrix
+                     , Data.Vector.Image.IO
   -- other-modules:       
   -- other-extensions:    
   build-depends:       base ==4.*
