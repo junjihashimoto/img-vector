@@ -26,32 +26,29 @@ parse :: Parser Command
 parse = subparser $ command "sharp" (info sharp (progDesc "sharpness filter")) 
                  <> command "mean"  (info mean (progDesc "mean filter"))
 
-runCmd :: Command -> IO ()
-runCmd (Sharp inf outf) = do
+imgFilter inf outf func = do
   eimg  <- readImg inf
   case eimg of
     Left error -> fail $ show error
     Right img'@(Image w h _) -> do
       let img = map (fmap fromIntegral) img'
-      _ <- writeImg outf $ createImgI w h $ \ x y ->
-        (                    (-1) * (img!(x,y-1)) +
-         (-1) * (img!(x-1,y)) + 8 * (img!(x,y)) + (-1) * (img!(x+1,y)) +
-                             (-1) * (img!(x,y+1))
-        ) `div` 4
+      _ <- writeImg outf $ createImgI w h $ func img
       return ()
 
+runCmd :: Command -> IO ()
+runCmd (Sharp inf outf) = do
+  imgFilter inf outf $ \ img x y ->
+    (                    (-1) * (img!(x,y-1)) +
+     (-1) * (img!(x-1,y)) + 8 * (img!(x,y)) + (-1) * (img!(x+1,y)) +
+                         (-1) * (img!(x,y+1))
+    ) `div` 4
+
 runCmd (Mean inf outf) = do
-  eimg  <- readImg inf
-  case eimg of
-    Left error -> fail $ show error
-    Right img'@(Image w h _) -> do
-      let img = map (fmap fromIntegral) img'
-      _ <- writeImg outf $ createImgI w h $ \ x y ->
-        (                      (img ! (x,y-1)) +
-         (img ! (x-1,y)) + 2 * (img ! (x,y)) + (img ! (x+1,y)) +
-                               (img ! (x,y+1))
-        ) `div` 6
-      return ()
+  imgFilter inf outf $ \ img x y ->
+    (                      (img ! (x,y-1)) +
+     (img ! (x-1,y)) + 2 * (img ! (x,y)) + (img ! (x+1,y)) +
+                           (img ! (x,y+1))
+    ) `div` 6
 
 
 opts :: ParserInfo Command
